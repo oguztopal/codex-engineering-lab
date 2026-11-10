@@ -66,4 +66,8 @@ public class Payment {
     public void complete() {
         this.status = PaymentStatus.COMPLETED;
     }
+
+    public void refund() {
+        this.status = PaymentStatus.REFUNDED;
+    }
 }

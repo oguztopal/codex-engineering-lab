@@ -4,6 +4,7 @@ import com.example.codexlab.common.api.ApiResponse;
 import com.example.codexlab.common.api.PageResponse;
 import com.example.codexlab.payment.dto.CreatePaymentRequest;
 import com.example.codexlab.payment.dto.PaymentResponse;
+import com.example.codexlab.payment.dto.RefundPaymentRequest;
 import com.example.codexlab.payment.dto.TransactionResponse;
 import com.example.codexlab.payment.service.PaymentService;
 import jakarta.validation.Valid;
@@ -57,5 +58,11 @@ public class PaymentController {
     @GetMapping("/{id}/transactions")
     public ApiResponse<List<TransactionResponse>> history(@PathVariable Long id) {
         return ApiResponse.success(paymentService.getHistory(id));
+    }
+
+    @PostMapping("/{id}/refund")
+    public ApiResponse<PaymentResponse> refund(
+            @PathVariable Long id, @Valid @RequestBody RefundPaymentRequest request) {
+        return ApiResponse.success(paymentService.refund(id, request));
     }
 }

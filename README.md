@@ -80,9 +80,19 @@ curl http://localhost:8080/api/payments/1/transactions
 curl "http://localhost:8080/api/payments?page=0&size=20"
 ```
 
-## Intentionally missing: refunds
+## Refunds
 
-`REFUNDED` is present in the payment-status enum, but no endpoint or business logic can reach it. Refund implementation and tests are intentionally excluded from this clean baseline. The future experiment will give both Codex environments the identical request in [`lab/prompts/refund-prompt.md`](lab/prompts/refund-prompt.md), then record observations in [`lab/results/README.md`](lab/results/README.md).
+Refund a completed payment by posting its full original amount:
+
+```bash
+curl -i -X POST http://localhost:8080/api/payments/1/refund \
+  -H "Content-Type: application/json" \
+  -d '{"amount":42.50}'
+```
+
+The amount must be positive, have at most two decimal places, and equal the original payment amount. Partial refunds are not supported. Success returns HTTP 200 with the payment in `REFUNDED` status. Invalid amounts return 400, missing payments return 404, and invalid transitions (including duplicate refunds) or concurrent update conflicts return 409, using the existing response envelope.
+
+The status update and `COMPLETED` to `REFUNDED` history entry commit atomically. Optimistic locking prevents concurrent requests from committing duplicate refunds. This local workflow does not contact an external payment provider.
 
 The full acceptance criteria live in [`lab/tasks/refund-challenge.md`](lab/tasks/refund-challenge.md).
 
@@ -97,6 +107,7 @@ The full acceptance criteria live in [`lab/tasks/refund-challenge.md`](lab/tasks
 | `GET` | `/api/payments/{id}` | Get a payment |
 | `GET` | `/api/payments?page=0&size=20` | List payments |
 | `POST` | `/api/payments/{id}/complete` | Complete a created payment |
+| `POST` | `/api/payments/{id}/refund` | Refund a completed payment in full |
 | `GET` | `/api/payments/{id}/transactions` | Get status history |
 
 ## License

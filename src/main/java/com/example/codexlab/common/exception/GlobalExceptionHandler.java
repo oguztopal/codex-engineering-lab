@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -28,6 +29,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ApiResponse<Void>> handleConflict(DataIntegrityViolationException exception) {
         return error(HttpStatus.CONFLICT, "DATA_CONFLICT", "The request conflicts with existing data", null);
+    }
+
+    @ExceptionHandler(InvalidRefundAmountException.class)
+    ResponseEntity<ApiResponse<Void>> handleInvalidRefundAmount(InvalidRefundAmountException exception) {
+        return error(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request validation failed",
+                Map.of("amount", exception.getMessage()));
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ResponseEntity<ApiResponse<Void>> handleConcurrentUpdate(OptimisticLockingFailureException exception) {
+        return error(HttpStatus.CONFLICT, "DATA_CONFLICT", "The payment was changed by another request", null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

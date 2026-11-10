@@ -2,11 +2,13 @@ package com.example.codexlab.payment.service;
 
 import com.example.codexlab.common.api.PageResponse;
 import com.example.codexlab.common.exception.InvalidPaymentTransitionException;
+import com.example.codexlab.common.exception.InvalidRefundAmountException;
 import com.example.codexlab.common.exception.ResourceNotFoundException;
 import com.example.codexlab.merchant.entity.Merchant;
 import com.example.codexlab.merchant.service.MerchantService;
 import com.example.codexlab.payment.dto.CreatePaymentRequest;
 import com.example.codexlab.payment.dto.PaymentResponse;
+import com.example.codexlab.payment.dto.RefundPaymentRequest;
 import com.example.codexlab.payment.dto.TransactionResponse;
 import com.example.codexlab.payment.entity.Payment;
 import com.example.codexlab.payment.entity.PaymentStatus;
@@ -15,6 +17,7 @@ import com.example.codexlab.payment.mapper.PaymentMapper;
 import com.example.codexlab.payment.mapper.PaymentTransactionMapper;
 import com.example.codexlab.payment.repository.PaymentRepository;
 import com.example.codexlab.payment.repository.PaymentTransactionRepository;
+import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -73,6 +76,28 @@ public class PaymentService {
         return transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(id).stream()
                 .map(transactionMapper::toResponse)
                 .toList();
+    }
+
+    @Transactional
+    public PaymentResponse refund(Long id, RefundPaymentRequest request) {
+        Payment payment = findEntity(id);
+        PaymentStatus previousStatus = payment.getStatus();
+        if (previousStatus != PaymentStatus.COMPLETED) {
+            throw new InvalidPaymentTransitionException(
+                    "Payment %d cannot transition from %s to REFUNDED".formatted(id, previousStatus));
+        }
+
+        BigDecimal amount = request == null ? null : request.amount();
+        if (amount == null || amount.signum() <= 0 || amount.scale() > 2
+                || amount.precision() - amount.scale() > 17
+                || amount.compareTo(payment.getAmount()) != 0) {
+            throw new InvalidRefundAmountException(
+                    "Refund amount must be positive, have at most two decimal places, and equal the payment amount");
+        }
+
+        payment.refund();
+        transactionRepository.save(new PaymentTransaction(payment, previousStatus, PaymentStatus.REFUNDED));
+        return paymentMapper.toResponse(payment);
     }
 
     private Payment findEntity(Long id) {
