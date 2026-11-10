@@ -67,6 +67,20 @@ public class PaymentService {
         return paymentMapper.toResponse(payment);
     }
 
+    @Transactional
+    public PaymentResponse cancel(Long id) {
+        Payment payment = findEntity(id);
+        PaymentStatus previousStatus = payment.getStatus();
+        if (previousStatus != PaymentStatus.CREATED) {
+            throw new InvalidPaymentTransitionException(
+                    "Payment %d cannot transition from %s to CANCELLED".formatted(id, previousStatus));
+        }
+
+        payment.cancel();
+        transactionRepository.save(new PaymentTransaction(payment, previousStatus, PaymentStatus.CANCELLED));
+        return paymentMapper.toResponse(payment);
+    }
+
     @Transactional(readOnly = true)
     public List<TransactionResponse> getHistory(Long id) {
         findEntity(id);

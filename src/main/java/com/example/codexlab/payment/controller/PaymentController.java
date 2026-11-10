@@ -54,6 +54,11 @@ public class PaymentController {
         return ApiResponse.success(paymentService.complete(id));
     }
 
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<PaymentResponse> cancel(@PathVariable Long id) {
+        return ApiResponse.success(paymentService.cancel(id));
+    }
+
     @GetMapping("/{id}/transactions")
     public ApiResponse<List<TransactionResponse>> history(@PathVariable Long id) {
         return ApiResponse.success(paymentService.getHistory(id));

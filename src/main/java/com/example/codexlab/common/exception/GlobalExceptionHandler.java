@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -23,6 +24,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidPaymentTransitionException.class)
     ResponseEntity<ApiResponse<Void>> handleInvalidTransition(InvalidPaymentTransitionException exception) {
         return error(HttpStatus.CONFLICT, "INVALID_PAYMENT_TRANSITION", exception.getMessage(), null);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ResponseEntity<ApiResponse<Void>> handleConcurrentUpdate(OptimisticLockingFailureException exception) {
+        return error(HttpStatus.CONFLICT, "PAYMENT_CONFLICT",
+                "Payment was modified by another request; reload the payment before retrying", null);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
