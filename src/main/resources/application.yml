@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: codex-engineering-lab
+  datasource:
+    url: jdbc:h2:mem:codexlab;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
