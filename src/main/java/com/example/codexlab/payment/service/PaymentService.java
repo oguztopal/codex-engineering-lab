@@ -6,6 +6,8 @@ import com.example.codexlab.common.exception.ResourceNotFoundException;
 import com.example.codexlab.merchant.entity.Merchant;
 import com.example.codexlab.merchant.service.MerchantService;
 import com.example.codexlab.payment.dto.CreatePaymentRequest;
+import com.example.codexlab.payment.dto.RefundPaymentRequest;
+import com.example.codexlab.common.exception.InvalidRefundAmountException;
 import com.example.codexlab.payment.dto.PaymentResponse;
 import com.example.codexlab.payment.dto.TransactionResponse;
 import com.example.codexlab.payment.entity.Payment;
@@ -68,16 +70,23 @@ public class PaymentService {
     }
 
     @Transactional
-    public PaymentResponse cancel(Long id) {
+    public PaymentResponse refund(Long id, RefundPaymentRequest request) {
         Payment payment = findEntity(id);
         PaymentStatus previousStatus = payment.getStatus();
-        if (previousStatus != PaymentStatus.CREATED) {
+        if (previousStatus != PaymentStatus.COMPLETED) {
             throw new InvalidPaymentTransitionException(
-                    "Payment %d cannot transition from %s to CANCELLED".formatted(id, previousStatus));
+                    "Payment %d cannot transition from %s to REFUNDED".formatted(id, previousStatus));
         }
 
-        payment.cancel();
-        transactionRepository.save(new PaymentTransaction(payment, previousStatus, PaymentStatus.CANCELLED));
+        if (request == null || request.amount() == null || request.amount().signum() <= 0
+                || request.amount().scale() > 2
+                || request.amount().precision() - request.amount().scale() > 17
+                || request.amount().compareTo(payment.getAmount()) != 0) {
+            throw new InvalidRefundAmountException(
+                    "Refund amount must be positive, have at most two decimal places, and equal the payment amount");
+        }
+        payment.refund();
+        transactionRepository.save(new PaymentTransaction(payment, previousStatus, PaymentStatus.REFUNDED));
         return paymentMapper.toResponse(payment);
     }
 

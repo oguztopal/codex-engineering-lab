@@ -102,3 +102,15 @@ The full acceptance criteria live in [`lab/tasks/refund-challenge.md`](lab/tasks
 ## License
 
 MIT
+
+
+### Refund correction on the plain branch
+
+This follow-up adapts the original plain cancellation implementation to full refunds.
+`POST /api/payments/{id}/refund` accepts `{"amount":42.50}`. Only COMPLETED
+payments may be refunded, and the amount must match the original payment.
+Duplicate refunds return 409. Payment and history changes share one transaction;
+optimistic locking protects competing requests.
+
+This is a post-run correction, not a fresh benchmark. Earlier timing and token
+measurements must not be attributed to this revised implementation.

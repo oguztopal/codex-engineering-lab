@@ -67,7 +67,7 @@ public class Payment {
         this.status = PaymentStatus.COMPLETED;
     }
 
-    public void cancel() {
-        this.status = PaymentStatus.CANCELLED;
+    public void refund() {
+        this.status = PaymentStatus.REFUNDED;
     }
 }

@@ -12,6 +12,7 @@ import com.example.codexlab.common.exception.ResourceNotFoundException;
 import com.example.codexlab.merchant.entity.Merchant;
 import com.example.codexlab.merchant.service.MerchantService;
 import com.example.codexlab.payment.dto.PaymentResponse;
+import com.example.codexlab.payment.dto.RefundPaymentRequest;
 import com.example.codexlab.payment.entity.Payment;
 import com.example.codexlab.payment.entity.PaymentStatus;
 import com.example.codexlab.payment.entity.PaymentTransaction;
@@ -77,49 +78,52 @@ class PaymentServiceTest {
     }
 
     @Test
-    void cancelsCreatedPaymentAndRecordsExactTransition() {
+    void refundsCompletedPaymentAndRecordsExactTransition() {
         Payment payment = new Payment(new Merchant("Test", "test@example.com"), new BigDecimal("19.99"), "USD");
+        payment.complete();
         PaymentResponse response = new PaymentResponse(null, null, payment.getAmount(), "USD",
-                PaymentStatus.CANCELLED, null, null);
+                PaymentStatus.REFUNDED, null, null);
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
         when(paymentMapper.toResponse(payment)).thenReturn(response);
 
-        assertThat(paymentService.cancel(1L)).isSameAs(response);
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(paymentService.refund(1L, new RefundPaymentRequest(new BigDecimal("19.99")))).isSameAs(response);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
         ArgumentCaptor<PaymentTransaction> history = ArgumentCaptor.forClass(PaymentTransaction.class);
         verify(transactionRepository).save(history.capture());
         assertThat(history.getValue().getPayment()).isSameAs(payment);
-        assertThat(history.getValue().getPreviousStatus()).isEqualTo(PaymentStatus.CREATED);
-        assertThat(history.getValue().getNewStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(history.getValue().getPreviousStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(PaymentStatus.REFUNDED);
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = "CREATED", mode = EnumSource.Mode.EXCLUDE)
-    void rejectsCancellationFromEveryOtherStatus(PaymentStatus status) {
+    @EnumSource(value = PaymentStatus.class, names = "COMPLETED", mode = EnumSource.Mode.EXCLUDE)
+    void rejectsRefundFromEveryOtherStatus(PaymentStatus status) {
         Payment payment = new Payment(new Merchant("Test", "test@example.com"), new BigDecimal("19.99"), "USD");
+        payment.complete();
         ReflectionTestUtils.setField(payment, "status", status);
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> paymentService.cancel(1L))
+        assertThatThrownBy(() -> paymentService.refund(1L, new RefundPaymentRequest(new BigDecimal("19.99"))))
                 .isInstanceOf(InvalidPaymentTransitionException.class)
-                .hasMessageContaining(status + " to CANCELLED");
+                .hasMessageContaining(status + " to REFUNDED");
         assertThat(payment.getStatus()).isEqualTo(status);
         verifyNoInteractions(transactionRepository, paymentMapper);
     }
 
     @Test
-    void rejectsCancellationOfUnknownPayment() {
+    void rejectsRefundOfUnknownPayment() {
         when(paymentRepository.findById(1L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> paymentService.cancel(1L)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> paymentService.refund(1L, new RefundPaymentRequest(new BigDecimal("19.99")))).isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(transactionRepository, paymentMapper);
     }
 
     @Test
     void propagatesHistoryFailure() {
         Payment payment = new Payment(new Merchant("Test", "test@example.com"), new BigDecimal("19.99"), "USD");
+        payment.complete();
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
         when(transactionRepository.save(any())).thenThrow(new IllegalStateException("history failure"));
-        assertThatThrownBy(() -> paymentService.cancel(1L))
+        assertThatThrownBy(() -> paymentService.refund(1L, new RefundPaymentRequest(new BigDecimal("19.99"))))
                 .isInstanceOf(IllegalStateException.class).hasMessage("history failure");
         verifyNoInteractions(paymentMapper);
     }

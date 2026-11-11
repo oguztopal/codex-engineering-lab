@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.codexlab.merchant.entity.Merchant;
 import com.example.codexlab.merchant.repository.MerchantRepository;
 import com.example.codexlab.payment.dto.CreatePaymentRequest;
+import com.example.codexlab.payment.dto.RefundPaymentRequest;
 import com.example.codexlab.payment.entity.Payment;
 import com.example.codexlab.payment.entity.PaymentStatus;
 import com.example.codexlab.payment.entity.PaymentTransaction;
@@ -43,7 +44,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest
 @ActiveProfiles("test")
-class PaymentCancellationIntegrationTest {
+class PaymentRefundIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private MerchantRepository merchantRepository;
     @Autowired private PaymentRepository paymentRepository;
@@ -64,66 +65,78 @@ class PaymentCancellationIntegrationTest {
         Merchant merchant = merchantRepository.save(new Merchant("Store", "store@example.com"));
         paymentId = paymentService.create(new CreatePaymentRequest(
                 merchant.getId(), new BigDecimal("42.50"), "USD")).id();
+        paymentService.complete(paymentId);
     }
 
     @Test
-    void cancelsPaymentAndPreservesDetailsAndHistory() throws Exception {
-        mockMvc.perform(post("/api/payments/{id}/cancel", paymentId))
+    void refundsPaymentAndPreservesDetailsAndHistory() throws Exception {
+        mockMvc.perform(post("/api/payments/{id}/refund", paymentId).contentType("application/json").content("{\"amount\":42.50}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.id").value(paymentId))
                 .andExpect(jsonPath("$.data.amount").value(42.50))
                 .andExpect(jsonPath("$.data.currency").value("USD"))
-                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.data.status").value("REFUNDED"));
         mockMvc.perform(get("/api/payments/{id}", paymentId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.data.status").value("REFUNDED"));
         mockMvc.perform(get("/api/payments/{id}/transactions", paymentId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data", hasSize(2)))
+                .andExpect(jsonPath("$.data", hasSize(3)))
                 .andExpect(jsonPath("$.data[0].newStatus").value("CREATED"))
-                .andExpect(jsonPath("$.data[1].previousStatus").value("CREATED"))
-                .andExpect(jsonPath("$.data[1].newStatus").value("CANCELLED"))
-                .andExpect(jsonPath("$.data[1].createdAt").isNotEmpty());
+                .andExpect(jsonPath("$.data[2].previousStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data[2].newStatus").value("REFUNDED"))
+                .andExpect(jsonPath("$.data[2].createdAt").isNotEmpty());
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = "CREATED", mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = PaymentStatus.class, names = "COMPLETED", mode = EnumSource.Mode.EXCLUDE)
     void rejectsEveryInvalidTransitionWithoutChangingStoredData(PaymentStatus initialStatus) throws Exception {
         Payment payment = paymentRepository.findById(paymentId).orElseThrow();
         ReflectionTestUtils.setField(payment, "status", initialStatus);
         paymentRepository.saveAndFlush(payment);
 
-        mockMvc.perform(post("/api/payments/{id}/cancel", paymentId))
+        mockMvc.perform(post("/api/payments/{id}/refund", paymentId).contentType("application/json").content("{\"amount\":42.50}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("INVALID_PAYMENT_TRANSITION"));
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(initialStatus);
-        assertThat(transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId)).hasSize(1);
+        assertThat(transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId)).hasSize(2);
     }
 
     @Test
-    void rejectsDuplicateCancellationAndCompletionAfterCancellation() throws Exception {
-        mockMvc.perform(post("/api/payments/{id}/cancel", paymentId)).andExpect(status().isOk());
-        for (String action : new String[]{"cancel", "complete"}) {
-            mockMvc.perform(post("/api/payments/{id}/" + action, paymentId))
+    void rejectsDuplicateRefundAndCompletionAfterRefund() throws Exception {
+        mockMvc.perform(post("/api/payments/{id}/refund", paymentId).contentType("application/json").content("{\"amount\":42.50}")).andExpect(status().isOk());
+        for (String action : new String[]{"refund", "complete"}) {
+            mockMvc.perform(post("/api/payments/{id}/" + action, paymentId).contentType("application/json").content("{\"amount\":42.50}"))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.error.code").value("INVALID_PAYMENT_TRANSITION"));
         }
-        assertThat(transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId)).hasSize(2);
-        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId)).hasSize(3);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"amount\":0}", "{\"amount\":-1}",
+            "{\"amount\":42.49}", "{\"amount\":42.51}", "{\"amount\":42.501}"})
+    void rejectsInvalidRefundAmountsWithoutChangingData(String body) throws Exception {
+        mockMvc.perform(post("/api/payments/{id}/refund", paymentId)
+                        .contentType("application/json").content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+        assertUnchanged();
     }
 
     @Test
     void returnsStructuredNotFound() throws Exception {
-        mockMvc.perform(post("/api/payments/{id}/cancel", Long.MAX_VALUE))
+        mockMvc.perform(post("/api/payments/{id}/refund", Long.MAX_VALUE).contentType("application/json").content("{\"amount\":42.50}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"cancel", "complete"})
+    @ValueSource(strings = {"refund"})
     void concurrentTransitionsCommitExactlyOneUpdateAndHistoryEntry(String competingAction) throws Exception {
         // Both requests reach mapping with the same version before either is allowed to commit.
         CyclicBarrier beforeCommit = new CyclicBarrier(2);
@@ -134,32 +147,32 @@ class PaymentCancellationIntegrationTest {
         }).when(paymentMapper).toResponse(any(Payment.class));
 
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var cancellation = executor.submit(() -> mockMvc.perform(
-                    post("/api/payments/{id}/cancel", paymentId)).andReturn());
+            var refund = executor.submit(() -> mockMvc.perform(
+                    post("/api/payments/{id}/refund", paymentId).contentType("application/json").content("{\"amount\":42.50}")).andReturn());
             var competitor = executor.submit(() -> mockMvc.perform(
-                    post("/api/payments/{id}/" + competingAction, paymentId)).andReturn());
-            MvcResult first = cancellation.get(20, TimeUnit.SECONDS);
+                    post("/api/payments/{id}/" + competingAction, paymentId).contentType("application/json").content("{\"amount\":42.50}")).andReturn());
+            MvcResult first = refund.get(20, TimeUnit.SECONDS);
             MvcResult second = competitor.get(20, TimeUnit.SECONDS);
             assertThat(new int[]{first.getResponse().getStatus(), second.getResponse().getStatus()})
                     .containsExactlyInAnyOrder(200, 409);
             MvcResult conflict = first.getResponse().getStatus() == 409 ? first : second;
             jsonPath("$.success").value(false).match(conflict);
             jsonPath("$.error.code").value("PAYMENT_CONFLICT").match(conflict);
-            PaymentStatus winner = first.getResponse().getStatus() == 200 || competingAction.equals("cancel")
-                    ? PaymentStatus.CANCELLED : PaymentStatus.COMPLETED;
+            PaymentStatus winner = first.getResponse().getStatus() == 200 || competingAction.equals("refund")
+                    ? PaymentStatus.REFUNDED : PaymentStatus.COMPLETED;
             assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(winner);
             var history = transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId);
-            assertThat(history).hasSize(2);
-            assertThat(history.getLast().getPreviousStatus()).isEqualTo(PaymentStatus.CREATED);
+            assertThat(history).hasSize(3);
+            assertThat(history.getLast().getPreviousStatus()).isEqualTo(PaymentStatus.COMPLETED);
             assertThat(history.getLast().getNewStatus()).isEqualTo(winner);
         }
     }
 
     @Test
-    void historyInsertFailureRollsBackCancellation() {
+    void historyInsertFailureRollsBackRefund() {
         doThrow(new IllegalStateException("history unavailable"))
                 .when(transactionRepository).save(any(PaymentTransaction.class));
-        assertThatThrownBy(() -> paymentService.cancel(paymentId))
+        assertThatThrownBy(() -> paymentService.refund(paymentId, new RefundPaymentRequest(new BigDecimal("42.50"))))
                 .isInstanceOf(IllegalStateException.class).hasMessage("history unavailable");
         assertUnchanged();
     }
@@ -170,17 +183,17 @@ class PaymentCancellationIntegrationTest {
             entityManager.flush();
             throw new IllegalStateException("failure after flush");
         }).when(paymentMapper).toResponse(any(Payment.class));
-        assertThatThrownBy(() -> paymentService.cancel(paymentId))
+        assertThatThrownBy(() -> paymentService.refund(paymentId, new RefundPaymentRequest(new BigDecimal("42.50"))))
                 .isInstanceOf(IllegalStateException.class).hasMessage("failure after flush");
         assertUnchanged();
     }
 
     private void assertUnchanged() {
         Payment payment = paymentRepository.findById(paymentId).orElseThrow();
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CREATED);
-        assertThat(payment.getVersion()).isZero();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(payment.getVersion()).isEqualTo(1L);
         var history = transactionRepository.findByPaymentIdOrderByCreatedAtAscIdAsc(paymentId);
-        assertThat(history).hasSize(1);
+        assertThat(history).hasSize(2);
         assertThat(history.getFirst().getNewStatus()).isEqualTo(PaymentStatus.CREATED);
     }
 }

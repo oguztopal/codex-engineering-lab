@@ -37,6 +37,12 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.CONFLICT, "DATA_CONFLICT", "The request conflicts with existing data", null);
     }
 
+    @ExceptionHandler(InvalidRefundAmountException.class)
+    ResponseEntity<ApiResponse<Void>> handleRefundAmount(InvalidRefundAmountException exception) {
+        return error(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request validation failed",
+                Map.of("amount", exception.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException exception) {
         Map<String, String> details = new LinkedHashMap<>();
